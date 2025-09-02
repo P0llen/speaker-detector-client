@@ -1,0 +1,46 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+# If you don't want a lockfile in a library, keep these ignored:
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build output (do not commit compiled files)
+dist/
+build/
+*.tgz
+
+# Tests & coverage
+coverage/
+.nyc_output/
+.vitest/
+__tests__/
+*.test.*
+*.spec.*
+
+# Tooling & caches
+.cache/
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.rollup.cache/
+.turbo/
+.temp/
+.tmp/
+
+# IDE
+.vscode/
+.idea/
+
+# Env & local overrides
+.env
+.env.*
+*.local
+
+# OS junk
+.DS_Store
+Thumbs.db

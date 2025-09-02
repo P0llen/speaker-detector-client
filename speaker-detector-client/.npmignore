@@ -1,0 +1,37 @@
+# Exclude sources & dev stuff from the npm package
+src/
+scripts/
+examples/
+demo/
+tests/
+__tests__/
+coverage/
+node_modules/
+.github/
+.storybook/
+.vscode/
+.idea/
+.vitest/
+.parcel-cache/
+.rollup.cache/
+.cache/
+
+# Config files not needed by consumers
+tsconfig*.json
+jest*.config.*
+vite.config.*
+webpack.config.*
+babel.config.*
+.eslintrc*
+.prettier*
+.editorconfig
+
+# Env files
+.env
+.env.*
+*.local
+
+# Ensure these ARE included in the package
+!dist/
+!README.md
+!LICENSE

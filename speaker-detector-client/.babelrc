@@ -1,0 +1,51 @@
+{
+  /* ───────────────────
+     1️⃣  Modern JS target
+     ─────────────────── */
+  "presets": [
+    [
+      "@babel/preset-env",
+      {
+        // don’t convert ES-modules → let Rollup / Vite handle that
+        "modules": false,
+        // keep the bundle lean; if you need IE11 change this
+        "targets": { "esmodules": true }
+      }
+    ],
+    "@babel/preset-react"
+  ],
+
+  /* ───────────────────
+     2️⃣  Plugins
+     ─────────────────── */
+  "plugins": [
+    /* -------------------------------------------
+       Path alias helper  (optional but convenient)
+       ------------------------------------------- */
+    [
+      "module-resolver",
+      {
+        "root": ["./src"],
+        "alias": {
+          "@components": "./src/components",
+          "@hooks": "./src/hooks",
+          "@lib": "./src/lib"
+        },
+        "transformFunctions": ["require"],
+        "extensions": [".js", ".jsx"]
+      }
+    ],
+
+    /* -------------------------------------------
+       Re-use helpers via  @babel/runtime
+       (smaller bundle & no global pollution)
+       ------------------------------------------- */
+    [
+      "@babel/plugin-transform-runtime",
+      {
+        // Rollup/Vite will tree-shake ESM helpers
+        "useESModules": true
+      }
+    ]
+  ]
+}
