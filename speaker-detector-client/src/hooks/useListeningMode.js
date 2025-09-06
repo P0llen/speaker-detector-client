@@ -1,18 +1,20 @@
 // hooks/useListeningMode.js
 import { useState, useEffect, useRef } from "react";
-import { API_BASE } from "../lib/constants";
+import { withBase } from "../lib/apiBase";
 
-// Safe fallback if backend doesn't return defaults
-const FALLBACK_DEFAULTS = { threshold: 0.75, interval_ms: 3000 };
+// Updated safe fallback based on backend defaults
+const FALLBACK_DEFAULTS = { threshold: 0.38, interval_ms: 4000 };
 
 export default function useListeningMode(initial = "off") {
   const [mode, setMode] = useState(initial);
   const [intervalMs, setIntervalMs] = useState(FALLBACK_DEFAULTS.interval_ms);
+  // Keep a local threshold only for client-side gating compatibility
   const [threshold, setThreshold] = useState(FALLBACK_DEFAULTS.threshold);
 
   const [defaults, setDefaults] = useState(FALLBACK_DEFAULTS);
   const [error, setError] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [sessionLogging, setSessionLogging] = useState(false);
 
   const readyRef = useRef(false); // block POSTs until we hydrate
 
@@ -22,7 +24,7 @@ export default function useListeningMode(initial = "off") {
 
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/listening-mode`, {
+        const res = await fetch(withBase(`/api/listening-mode`), {
           cache: "no-store",
         });
         if (!res.ok) throw new Error("Failed to fetch listening mode");
@@ -37,11 +39,15 @@ export default function useListeningMode(initial = "off") {
             ? data.interval_ms
             : FALLBACK_DEFAULTS.interval_ms
         );
-        setThreshold(
-          typeof data.threshold === "number"
+        // Prefer new API field spk_threshold; fall back to threshold
+        const spkTh =
+          typeof data.spk_threshold === "number"
+            ? data.spk_threshold
+            : typeof data.threshold === "number"
             ? data.threshold
-            : FALLBACK_DEFAULTS.threshold
-        );
+            : FALLBACK_DEFAULTS.threshold;
+        setThreshold(spkTh);
+        setSessionLogging(Boolean(data.session_logging));
 
         // defaults (optional on server; fall back if missing)
         const serverDefaults = {
@@ -50,7 +56,9 @@ export default function useListeningMode(initial = "off") {
               ? data.defaults.interval_ms
               : FALLBACK_DEFAULTS.interval_ms,
           threshold:
-            data.defaults && typeof data.defaults.threshold === "number"
+            data.defaults && typeof data.defaults.spk_threshold === "number"
+              ? data.defaults.spk_threshold
+              : typeof data.defaults?.threshold === "number"
               ? data.defaults.threshold
               : FALLBACK_DEFAULTS.threshold,
         };
@@ -71,47 +79,22 @@ export default function useListeningMode(initial = "off") {
     };
   }, [initial]);
 
-  // 2) Debounced sync for threshold + interval (only after hydrate)
-  useEffect(() => {
-    if (!readyRef.current) return;
-
-    setSyncing(true);
-    const t = setTimeout(() => {
-      fetch(`${API_BASE}/api/listening-mode`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, interval_ms: intervalMs, threshold }),
-      })
-        .catch((err) => {
-          console.error("❌ Failed to sync detection settings:", err);
-        })
-        .finally(() => setSyncing(false));
-    }, 300);
-
-    return () => clearTimeout(t);
-  }, [intervalMs, threshold, mode]);
-
-  // 3) Updating mode triggers immediate POST (+ optional restart)
+  // 2) Updating mode or logging triggers immediate POST; backend owns tuning
   useEffect(() => {
     if (!readyRef.current) return;
 
     (async () => {
       try {
         setSyncing(true);
-        const res = await fetch(`${API_BASE}/api/listening-mode`, {
+        const res = await fetch(withBase(`/api/listening-mode`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode, interval_ms: intervalMs, threshold }),
+          body: JSON.stringify({ mode, session_logging: sessionLogging }),
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || "Failed to update mode");
+        let json = null;
+        try { json = await res.json(); } catch {}
+        if (!res.ok) throw new Error(json?.error || "Failed to update mode");
 
-        if (mode !== "off") {
-          // best-effort restart; it's fine if the endpoint is a no-op sometimes
-          await fetch(`${API_BASE}/api/restart-detection`, {
-            method: "POST",
-          }).catch(() => {});
-        }
         setError(null);
       } catch (err) {
         console.error("❌ Failed to update mode:", err);
@@ -121,34 +104,12 @@ export default function useListeningMode(initial = "off") {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, sessionLogging]);
 
-  // 4) Reset to backend defaults (and persist)
-  const resetToDefaults = async () => {
+  // Read-only client; provide setters for compatibility but do not auto-POST
+  const resetToDefaults = () => {
     setIntervalMs(defaults.interval_ms);
     setThreshold(defaults.threshold);
-    setSyncing(true);
-    try {
-      await fetch(`${API_BASE}/api/listening-mode`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          interval_ms: defaults.interval_ms,
-          threshold: defaults.threshold,
-        }),
-      });
-      if (mode !== "off") {
-        await fetch(`${API_BASE}/api/restart-detection`, {
-          method: "POST",
-        }).catch(() => {});
-      }
-    } catch (err) {
-      console.error("❌ Failed to reset to defaults:", err);
-      setError(err.message);
-    } finally {
-      setSyncing(false);
-    }
   };
 
   return {
@@ -160,6 +121,8 @@ export default function useListeningMode(initial = "off") {
     setThreshold,
     defaults,
     resetToDefaults,
+    sessionLogging,
+    setSessionLogging,
     error,
     syncing,
   };

@@ -14,7 +14,10 @@
     "clean": "rimraf dist",
     "build": "babel src --out-dir dist --copy-files",
     "pack": "npm pack",
-    "clean-pack": "npm run clean && npm run build && npm run pack"
+    "clean-pack": "npm run clean && npm run build && npm run pack",
+    "dev": "vite --config demo/vite.config.js",
+    "demo:build": "vite build --config demo/vite.config.js",
+    "demo:preview": "vite preview --config demo/vite.config.js"
   },
   "keywords": [
     "react",
@@ -37,8 +40,10 @@
     "@babel/plugin-transform-runtime": "^7.28.0",
     "@babel/preset-env": "^7.23.0",
     "@babel/preset-react": "^7.27.1",
+    "@vitejs/plugin-react": "^4.2.1",
     "babel-plugin-module-resolver": "^5.0.2",
-    "rimraf": "^5.0.10"
+    "rimraf": "^5.0.10",
+    "vite": "^5.4.8"
   },
   "peerDependencies": {
     "react": "^18.0.0",

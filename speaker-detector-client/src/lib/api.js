@@ -1,5 +1,5 @@
 // Unified API methods for speaker detector backend
-
+// Keep relative URLs here to preserve same-origin behavior by default
 export async function enrollSpeaker(blob, speakerName) {
   const form = new FormData();
   form.append("file", blob, "enroll.webm");

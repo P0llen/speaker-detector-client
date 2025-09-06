@@ -1,0 +1,197 @@
+    1: // speaker-detector-client/src/hooks/useSpeakerDetection.js
+    1: import { useEffect, useRef, useState } from "react";
+    1: import { withBase } from "../lib/apiBase";
+    1: import useListeningMode from "./useListeningMode";
+    1: 
+    1: export function useSpeakerDetection({
+    1:   endpoint = "/api/active-speaker",
+    1:   log = true,
+    1:   logOnChangeOnly = true,
+    1:   minDelta = 0.02,
+    1:   smoothing = 1,
+    1:   backgroundLabel = null,
+    1: } = {}) {
+    1:   const { threshold, intervalMs, mode } = useListeningMode("off"); // ← SSOT values
+    1:   const minConfidence = threshold;
+    1:   const interval = intervalMs;
+    1: 
+    1:   const [speaker, setSpeaker] = useState(null);
+    1:   const [confidence, setConfidence] = useState(null);
+    1:   const [isSpeaking, setIsSpeaking] = useState(false);
+    1:   const [status, setStatus] = useState("pending");
+    1:   const [error, setError] = useState(null);
+    1:   const [backendOnline, setBackendOnline] = useState(null);
+    1:   const [altSpeaker, setAltSpeaker] = useState(null);
+    1:   const [altConfidence, setAltConfidence] = useState(null);
+    1: 
+    1:   const lastAnnouncedNameRef = useRef(null);
+    1:   const inFlightRef = useRef(false);
+    1:   const lastSampleRef = useRef({ name: null, confidence: null, status: null, isSpeaking: null });
+    1:   const confWindowRef = useRef([]);
+    1: 
+    1:   useEffect(() => {
+    1:     let id;
+    1:     const check = async () => {
+    1:       try {
+    1:         const r = await fetch(withBase(`/api/version`), { cache: "no-store" });
+    1:         if (!r.ok) throw new Error();
+    1:         await r.json();
+    1:         setBackendOnline(true);
+    1:       } catch {
+    1:         setBackendOnline(false);
+    1:       }
+    1:     };
+    1:     check();
+    1:     id = setInterval(check, 5000);
+    1:     return () => clearInterval(id);
+    1:   }, []);
+    1: 
+    1:   useEffect(() => {
+    1:     let id,
+    1:       cancelled = false;
+    1:     const poll = async () => {
+    1:       if (mode === "off") {
+    1:         setStatus("disabled");
+    1:         setSpeaker(null);
+    1:         setConfidence(null);
+    1:         setIsSpeaking(false);
+    1:         return;
+    1:       }
+    1:       if (inFlightRef.current) return;
+    1:       inFlightRef.current = true;
+    1:       try {
+    1:         const r = await fetch(withBase(endpoint), { cache: "no-store" });
+    1:         if (!r.ok) throw new Error("Active speaker API failed");
+    1:         const d = await r.json();
+    1:         if (cancelled) return;
+    1: 
+    1:         const rawSpeaker = d.speaker ?? null;
+    1:         const rawConfidence =
+    1:           typeof d.confidence === "number" ? d.confidence : null;
+    1:         const backendIsSpeaking =
+    1:           typeof d.is_speaking === "boolean" ? d.is_speaking : null;
+    1:         const stateStatus = (d.status || "pending").trim();
+    1: 
+    1:         // Optional suggested candidate from backend (non-breaking)
+    1:         let altName = null;
+    1:         let altConf = null;
+    1:         if (d && typeof d === "object" && d.suggested) {
+    1:           const s = d.suggested || {};
+    1:           altName = s.speaker || null;
+    1:           altConf = typeof s.confidence === "number" ? s.confidence : null;
+    1:         }
+    1: 
+    1:         // optional smoothing for confidence
+    1:         let smoothed = rawConfidence;
+    1:         if (typeof rawConfidence === "number" && smoothing > 1) {
+    1:           const w = confWindowRef.current;
+    1:           w.push(rawConfidence);
+    1:           if (w.length > smoothing) w.shift();
+    1:           smoothed = w.reduce((a, b) => a + b, 0) / w.length;
+    1:         }
+    1:         const nextConfidence = smoothed;
+    1: 
+    1:         setStatus(stateStatus);
+    1:         setSpeaker(rawSpeaker);
+    1:         setConfidence(nextConfidence);
+    1:         setAltSpeaker(altName);
+    1:         setAltConfidence(altConf);
+    1: 
+    1:         const knownEnough =
+    1:           rawSpeaker &&
+    1:           rawSpeaker !== "unknown" &&
+    1:           (backgroundLabel ? rawSpeaker !== backgroundLabel : true) &&
+    1:           (nextConfidence ?? 0) >= (minConfidence ?? 0.5);
+    1: 
+    1:         const computedIsSpeaking =
+    1:           backendIsSpeaking !== null ? backendIsSpeaking : knownEnough;
+    1:         setIsSpeaking(computedIsSpeaking);
+    1: 
+    1:         // events
+    1:         window.dispatchEvent(
+    1:           new CustomEvent("speaker:update", {
+    1:             detail: {
+    1:               name: rawSpeaker,
+    1:               confidence: nextConfidence,
+    1:               isSpeaking: computedIsSpeaking,
+    1:               status: stateStatus,
+    1:               backendOnline: backendOnline !== false,
+    1:               ts: Date.now(),
+    1:             },
+    1:           })
+    1:         );
+    1: 
+    1:         if (knownEnough) {
+    1:           if (lastAnnouncedNameRef.current !== rawSpeaker) {
+    1:             window.dispatchEvent(
+    1:               new CustomEvent("speaker:identified", {
+    1:                 detail: {
+    1:                   name: rawSpeaker,
+    1:                   confidence: nextConfidence,
+    1:                   status: stateStatus,
+    1:                   ts: Date.now(),
+    1:                 },
+    1:               })
+    1:             );
+    1:             lastAnnouncedNameRef.current = rawSpeaker;
+    1:           }
+    1:         } else if (lastAnnouncedNameRef.current) {
+    1:           window.dispatchEvent(
+    1:             new CustomEvent("speaker:cleared", {
+    1:               detail: {
+    1:                 previous: lastAnnouncedNameRef.current,
+    1:                 to: rawSpeaker || "unknown",
+    1:                 status: stateStatus,
+    1:                 confidence: nextConfidence ?? 0,
+    1:                 ts: Date.now(),
+    1:               },
+    1:             })
+    1:           );
+    1:           lastAnnouncedNameRef.current = null;
+    1:         }
+    1: 
+    1:         if (log) {
+    1:           const last = lastSampleRef.current;
+    1:           const changedName = last.name !== rawSpeaker;
+    1:           const changedStatus = last.status !== stateStatus;
+    1:           const changedSpeaking = last.isSpeaking !== computedIsSpeaking;
+    1:           const delta = Math.abs((nextConfidence || 0) - (last.confidence || 0));
+    1:           const shouldLog = !logOnChangeOnly || changedName || changedStatus || changedSpeaking || delta >= minDelta;
+    1:           if (shouldLog) {
+    1:             const pct = Math.round((nextConfidence || 0) * 100);
+    1:             console.log(
+    1:               `🎙️ Detected: ${rawSpeaker} (${pct}%) — ${stateStatus} | isSpeaking=${computedIsSpeaking}`
+    1:             );
+    1:           }
+    1:           lastSampleRef.current = {
+    1:             name: rawSpeaker,
+    1:             confidence: nextConfidence,
+    1:             status: stateStatus,
+    1:             isSpeaking: computedIsSpeaking,
+    1:           };
+    1:         }
+    1:         setError(null);
+    1:       } catch (e) {
+    1:         if (backendOnline === false) setError("Backend unreachable");
+    1:         setStatus("error");
+    1:         setSpeaker(null);
+    1:         setConfidence(null);
+    1:         setIsSpeaking(false);
+    1:       } finally {
+    1:         inFlightRef.current = false;
+    1:       }
+    1:     };
+    1: 
+    1:     poll();
+    1:     id = setInterval(poll, Math.max(300, interval || 3000));
+    1:     return () => {
+    1:       cancelled = true;
+    1:       clearInterval(id);
+    1:     };
+    1:   }, [endpoint, backendOnline, log, logOnChangeOnly, minDelta, smoothing, backgroundLabel, interval, minConfidence, mode]);
+    1: 
+    1:   return { speaker, confidence, isSpeaking, error, status, backendOnline, altSpeaker, altConfidence };
+    1: }
+    1: 
+    1: // Export default and keep named export via the function declaration above
+    1: export default useSpeakerDetection;

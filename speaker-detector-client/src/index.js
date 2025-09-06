@@ -22,6 +22,7 @@ import {
 } from "@lib/api";
 import { getSpeakerPrompt } from "@lib/getSpeakerPrompt";
 import { CLIENT_VERSION, API_BASE } from "@lib/constants";
+import { getApiBase, setApiBase, withBase, API_BASE_GLOBAL_KEY } from "@lib/apiBase";
 
 export {
   // Components & hooks
@@ -47,4 +48,9 @@ export {
   getSpeakerPrompt,
   CLIENT_VERSION,
   API_BASE,
+  // API base helpers (non-breaking addition)
+  getApiBase,
+  setApiBase,
+  withBase,
+  API_BASE_GLOBAL_KEY,
 };

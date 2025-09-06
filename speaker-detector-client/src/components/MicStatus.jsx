@@ -10,7 +10,7 @@ const MicStatus = ({
   enableMicTest = true,
   micTestButtonLabel = "🎤 Mic Test",
 }) => {
-  const { devices, selectedDeviceId, setSelectedDeviceId } = useMicCheck();
+  const { devices, selectedDeviceId, setSelectedDeviceId, refreshDeviceList } = useMicCheck();
 
   const [showMicTest, setShowMicTest] = useState(false);
 
@@ -37,18 +37,13 @@ const MicStatus = ({
         <strong>Status:</strong> {combinedStatusLabel()}
       </p>
 
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 8, marginBottom: 16 }}>
         <label>
           Input device:&nbsp;
           <select
             value={selectedDeviceId || ""}
             onChange={onSelectDevice}
-            style={{
-              background: "#222",
-              color: "#fff",
-              borderRadius: 4,
-              padding: 4,
-            }}
+            style={{ padding: 4 }}
           >
             {devices.length === 0 ? (
               <option value="">(no audio inputs)</option>
@@ -62,11 +57,12 @@ const MicStatus = ({
           </select>
         </label>
 
+        <button onClick={refreshDeviceList} style={{ marginLeft: 8 }}>
+          🔄 Refresh Inputs
+        </button>
+
         {enableMicTest && (
-          <button
-            onClick={() => setShowMicTest((v) => !v)}
-            style={{ marginLeft: 8 }}
-          >
+          <button onClick={() => setShowMicTest((v) => !v)} style={{ marginLeft: 8 }}>
             {showMicTest ? "⬆️ Close Mic Test" : micTestButtonLabel + " ⬇️"}
           </button>
         )}
@@ -119,10 +115,15 @@ function MicTestSection({ deviceId }) {
     const dataArray = new Uint8Array(bufferLength);
 
     analyser.getByteTimeDomainData(dataArray);
-    ctx.fillStyle = "#222";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Clear previous frame and draw without forcing a dark background
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "#0f0";
+    try {
+      const c = getComputedStyle(canvas).color || '#666';
+      ctx.strokeStyle = c;
+    } catch {
+      ctx.strokeStyle = '#666';
+    }
     ctx.beginPath();
 
     const slice = canvas.width / bufferLength;
@@ -142,9 +143,9 @@ function MicTestSection({ deviceId }) {
   const setupMic = useCallback(async () => {
     cleanup();
     try {
-      const constraints = deviceId
-        ? { audio: { deviceId: { exact: deviceId } } }
-        : { audio: true };
+      const constraints = !deviceId || deviceId === 'default' || deviceId === 'communications'
+        ? { audio: true }
+        : { audio: { deviceId: { exact: deviceId } } };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
@@ -211,28 +212,9 @@ function MicTestSection({ deviceId }) {
   };
 
   return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: 12,
-        background: "#1b1b1b",
-        border: "1px solid #333",
-        borderRadius: 8,
-      }}
-    >
+    <div style={{ marginTop: 12, padding: 12 }}>
       <h5 style={{ marginBottom: 8 }}>🎧 Mic Signal Visualizer</h5>
-      <canvas
-        ref={canvasRef}
-        width={560}
-        height={100}
-        style={{
-          width: "100%",
-          height: 120,
-          background: "#1b1b1b",
-          border: "1px solid #333",
-          borderRadius: 8,
-        }}
-      />
+      <canvas ref={canvasRef} width={560} height={100} style={{ width: '100%', height: 120 }} />
 
       <div style={{ marginTop: 12 }}>
         {!recording && !audioURL && (

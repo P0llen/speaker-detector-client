@@ -56,7 +56,7 @@ function App() {
 ### 🎛 Components
 
 - **`<SpeakerStatus />`**  
-  Displays live speaker name, confidence, and correction UI.
+  Displays live speaker name, confidence, and backend status. All tuning (mode, threshold, interval, etc.) is backend‑controlled; the UI is read‑only.
 
 ---
 
@@ -130,6 +130,72 @@ export default SpeakerStatus;
 ```
 
 ---
+
+## 🧪 Local Demo (Preview UI)
+
+This repo includes a small Vite demo so you can run a page locally, tweak the UI, and test against the backend before integrating into your app.
+
+1) Install demo deps (at repo root `speaker-detector-client/`):
+
+```
+npm i
+npm i -D vite @vitejs/plugin-react
+```
+
+2) Start your backend (default at `http://localhost:9000`).
+
+3) Run the demo:
+
+```
+npm run dev
+```
+
+Open the printed URL (default `http://localhost:5173`). The demo imports from `src/` directly for instant feedback and proxies `/api/*` calls to your backend.
+
+Change demo ports/targets without editing files:
+
+- Windows PowerShell:
+  - `set DEMO_PORT=5175; npm run dev`
+  - `set DEMO_BACKEND=http://localhost:9100; npm run dev`
+- macOS/Linux:
+  - `DEMO_PORT=5175 npm run dev`
+  - `DEMO_BACKEND=http://localhost:9100 npm run dev`
+
+You can also pass a CLI flag: `npm run dev -- --port 5175`.
+
+Build or preview the demo:
+
+```
+npm run demo:build
+npm run demo:preview
+```
+
+The `demo/` folder is excluded from the published npm package.
+
+---
+
+## ⚙️ API Base (CORS‑friendly)
+
+By default, this package avoids hardwiring a cross‑origin base URL. All internal requests flow through a small resolver:
+
+- `withBase(path)`: prefixes `path` with a configured base URL if provided; otherwise keeps it relative.
+- Configuration precedence:
+  1. `window.__SPEAKER_API_BASE__` (if set by the host app)
+  2. `API_BASE` exported from `@lib/constants` (for back‑compat)
+  3. Empty string → relative URLs (same‑origin)
+
+Recommended production setup is to use same‑origin relative URLs and route `/api/*` via your reverse proxy (Nginx/Traefik/CDN) to the backend. If you need to target a different origin, set at app startup:
+
+```html
+<script>
+  window.__SPEAKER_API_BASE__ = 'https://api.pl4tform.online';
+  // or programmatically: setApiBase('https://api.pl4tform.online')
+  // import { setApiBase } from '@pollen/speaker-detector-client'
+</script>
+```
+
+The demo explicitly sets `window.__SPEAKER_API_BASE__ = ''` to use the Vite proxy and avoid CORS during local development.
+
 
 ## 🌐 Backend Setup
 

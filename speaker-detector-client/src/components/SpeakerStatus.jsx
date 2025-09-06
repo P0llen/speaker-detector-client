@@ -1,98 +1,84 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSpeakerDetection } from "../hooks/useSpeakerDetection";
 
 import useListeningMode from "../hooks/useListeningMode";
-import { API_BASE, CLIENT_VERSION } from "../lib/constants";
-import MicStatus from "./MicStatus"; // ⬅️ embed the unified status component
+import { CLIENT_VERSION } from "../lib/constants";
+import { withBase } from "../lib/apiBase";
+import MicStatus from "./MicStatus"; // ⬅️ unified status component
 
-const SpeakerStatus = ({ minConfidence, interval } = {}) => {
-  // Live detection stream
-  const { speaker, confidence, isSpeaking, error, status, backendOnline } =
-    useSpeakerDetection({
-      minConfidence,
-      interval,
-      log: true,
-    });
+const SpeakerStatus = ({
+  // legacy props ignored; backend controls tuning now
+} = {}) => {
 
   // Backend-controlled settings (via hook)
   const {
     mode: listeningMode,
     setMode: setListeningMode,
     intervalMs,
-    setIntervalMs,
     threshold,
-    setThreshold,
+    sessionLogging,
+    setSessionLogging,
     syncing,
   } = useListeningMode("off");
 
-  // Local UI state
-  const [speakers, setSpeakers] = useState(null);
-  const [speakersError, setSpeakersError] = useState(null);
-  const [backendVersion, setBackendVersion] = useState(null);
-  const [defaults, setDefaults] = useState(null);
+  // Responsive layout: switch to single column when container is narrow
+  const containerRef = useRef(null);
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    if (!containerRef.current || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        setIsNarrow(e.contentRect.width < 720);
+      }
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
 
-  // --- Fetch helpers ---
-  const fetchSpeakers = () => {
-    setSpeakersError(null);
-    fetch(`${API_BASE}/api/speakers`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Speakers API failed");
-        return res.json();
-      })
-      .then((data) => setSpeakers(Array.isArray(data) ? data : []))
-      .catch((err) => {
-        console.error("❌ Failed to fetch speakers:", err);
-        setSpeakers(null);
-        setSpeakersError("Failed to load speakers");
-      });
+  const [sessionId, setSessionId] = useState(null);
+
+  const genSessionId = () => {
+    const host = (typeof window !== 'undefined' && window.location && window.location.host)
+      ? String(window.location.host).replace(/[^a-zA-Z0-9.-]/g, '_')
+      : 'unknown-host';
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const rand = Math.random().toString(36).slice(2, 8);
+    return `sdc-web_v${CLIENT_VERSION}_${host}_${ts}_${rand}`;
   };
 
+  useEffect(() => {
+    if (sessionLogging && listeningMode !== 'off' && !sessionId) {
+      setSessionId(genSessionId());
+    }
+    if (listeningMode === 'off' && sessionId) {
+      setSessionId(null);
+    }
+  }, [sessionLogging, listeningMode]);
+
+  const { speaker, confidence, isSpeaking, error, status, backendOnline, altSpeaker, altConfidence } =
+    useSpeakerDetection({
+      log: true,
+      logOnChangeOnly: true,
+      // frontend no longer tunes; rely on backend
+      mode: listeningMode,
+      intervalMs,
+      threshold,
+      sid: sessionLogging ? sessionId : null,
+    });
+
+  const [backendVersion, setBackendVersion] = useState(null);
+  // --- Fetch helpers ---
+
   const fetchBackendVersion = () => {
-    fetch(`${API_BASE}/api/version`)
+    fetch(withBase(`/api/version`))
       .then((res) => res.json())
       .then((data) => setBackendVersion(data.version))
       .catch(() => setBackendVersion(null));
   };
 
-  // Hydrate current settings & defaults from backend constants
-  const fetchListeningMeta = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/listening-mode`, {
-        cache: "no-store",
-      });
-      if (!res.ok) throw new Error("listening-mode GET failed");
-      const json = await res.json();
-
-      if (json.defaults && typeof json.defaults === "object") {
-        setDefaults({
-          threshold:
-            typeof json.defaults.threshold === "number"
-              ? json.defaults.threshold
-              : threshold,
-          interval_ms:
-            typeof json.defaults.interval_ms === "number"
-              ? json.defaults.interval_ms
-              : intervalMs,
-        });
-      } else {
-        setDefaults({ threshold, interval_ms: intervalMs });
-      }
-    } catch {
-      setDefaults({ threshold, interval_ms: intervalMs });
-    }
-  };
-
   useEffect(() => {
-    fetchSpeakers();
     fetchBackendVersion();
-    fetchListeningMeta();
   }, []);
-
-  const resetToDefaults = () => {
-    if (!defaults) return;
-    setThreshold(defaults.threshold);
-    setIntervalMs(defaults.interval_ms);
-  };
 
   const backendLabel =
     backendOnline === null
@@ -107,8 +93,10 @@ const SpeakerStatus = ({ minConfidence, interval } = {}) => {
   }
 
   return (
-    <div className="speaker-status-panel">
-      <h4 className="speaker-heading">🔊 Speaker Status</h4>
+    <div className="speaker-status-panel" ref={containerRef}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <h4 className="speaker-heading" style={{ margin: 0 }}>🔊 Speaker Status</h4>
+      </div>
 
       <p style={{ marginBottom: 8 }}>
         <strong>Backend:</strong> {backendLabel}
@@ -123,130 +111,85 @@ const SpeakerStatus = ({ minConfidence, interval } = {}) => {
         {CLIENT_VERSION}
       </p>
 
-      {/* Unified mic + engine status */}
-      <MicStatus
-        backendOnline={backendOnline}
-        status={status}
-        listeningMode={listeningMode}
-        isSpeaking={isSpeaking}
-      />
-
-      {/* Listening mode */}
-      <div style={{ marginTop: 12, marginBottom: 12 }}>
-        <label>
-          🎚 Listening Mode:&nbsp;
-          <select
-            value={listeningMode}
-            onChange={(e) => setListeningMode(e.target.value)}
-            style={{
-              background: "#222",
-              color: "#fff",
-              borderRadius: 4,
-              padding: "4px 6px",
-              border: "1px solid #555",
-            }}
-          >
-            <option value="off">🔇 Off</option>
-            <option value="single">🧍 Single</option>
-            <option value="multi">👥 Multi</option>
-          </select>
-        </label>
-      </div>
-
-      {/* Interval slider */}
-      <div style={{ marginBottom: 10 }}>
-        <label>
-          ⏱ Interval (ms):
-          <input
-            type="range"
-            min="500"
-            max="5000"
-            step="100"
-            value={intervalMs}
-            onChange={(e) => setIntervalMs(Number(e.target.value))}
-            style={{ width: 260, marginLeft: 8 }}
+      <div style={{ display: 'grid', gap: 32, gridTemplateColumns: isNarrow ? '1fr' : '2fr 1fr' }}>
+        {/* Left column: read-only mic + controls */}
+        <div>
+          <MicStatus
+            backendOnline={backendOnline}
+            status={status}
+            listeningMode={listeningMode}
+            isSpeaking={isSpeaking}
           />
-          <span style={{ marginLeft: 8 }}>{intervalMs} ms</span>
-        </label>
-        {defaults && (
-          <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
-            Default: {defaults.interval_ms} ms
+          <div style={{ marginTop: 12, opacity: 0.8 }}>
+            <strong>Mode:</strong> {listeningMode} &nbsp;|&nbsp; <strong>Interval:</strong> {intervalMs} ms &nbsp;|&nbsp; <strong>Threshold:</strong> {typeof threshold === 'number' ? threshold.toFixed(2) : '—'}
+            {syncing && (
+              <span style={{ marginLeft: 8, fontStyle: 'italic' }}>syncing…</span>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Threshold slider */}
-      <div style={{ marginBottom: 10 }}>
-        <label>
-          🧠 Threshold:
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={threshold}
-            onChange={(e) => setThreshold(parseFloat(e.target.value))}
-            style={{ width: 260, marginLeft: 8 }}
-          />
-          <span style={{ marginLeft: 8 }}>{threshold.toFixed(2)}</span>
-        </label>
-        {defaults && (
-          <div style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
-            Default: {defaults.threshold}
+          
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div role="group" aria-label="Detection Mode" style={{ display: 'inline-flex', gap: 6 }}>
+              <button onClick={() => setListeningMode('off')} disabled={listeningMode === 'off'} title="Stop detection">
+                <span style={{ display: 'inline-block', width: 10, height: 10, background: '#c62828', borderRadius: 2, marginRight: 6, verticalAlign: -1 }} />
+                Off
+              </button>
+              <button onClick={() => { if (sessionLogging && !sessionId) setSessionId(genSessionId()); setListeningMode('single'); }} disabled={listeningMode === 'single'} title="Start detection (single mode)">
+                ▶️ Single
+              </button>
+              <button onClick={() => { if (sessionLogging && !sessionId) setSessionId(genSessionId()); setListeningMode('multi'); }} disabled={listeningMode === 'multi'} title="Start detection (multi mode)">
+                ▶️ Multi
+              </button>
+            </div>
+            <label style={{ marginLeft: 6, display: 'inline-flex', alignItems: 'center', gap: 6 }} title="When enabled, tag polls with a session id and request backend session logging">
+              <input
+                type="checkbox"
+                checked={!!sessionLogging}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setSessionLogging(next);
+                  if (next && listeningMode !== 'off' && !sessionId) {
+                    setSessionId(genSessionId());
+                  }
+                }}
+              />
+              Session logging
+            </label>
           </div>
-        )}
+          {sessionLogging && sessionId && (
+            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.8 }}>
+              <strong>Session ID:</strong> {sessionId}
+            </div>
+          )}
+        </div>
+
+        {/* Right column: output */}
+        <div>
+          <div style={{ marginBottom: 8, opacity: 0.8 }}>
+            Status: {status} {isSpeaking ? '• speaking' : ''}
+          </div>
+          <div>
+            <div style={{ fontSize: 14, opacity: 0.8 }}>Detected Speaker</div>
+            <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2, marginTop: 4 }}>
+              {speaker || 'None'}
+              {altSpeaker && (!speaker || speaker === 'unknown') && (
+                <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 8, opacity: 0.8 }}>
+                  Suggestion: {altSpeaker}{typeof altConfidence === 'number' ? ` (${Math.round(altConfidence * 100)}%)` : ''}
+                </span>
+              )}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 16 }}>
+              <strong>Confidence:</strong> {confidence !== null ? `${Math.round(confidence * 100)}%` : 'N/A'}
+            </div>
+            {altSpeaker && (
+              <div style={{ marginTop: 12, fontSize: 14, opacity: 0.8 }}>
+                <span style={{ fontWeight: 600 }}>Suggestion:</span>{' '}
+                {altSpeaker} {typeof altConfidence === 'number' ? `(${Math.round(altConfidence * 100)}%)` : ''}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div style={{ margin: "6px 0 14px" }}>
-        <button
-          onClick={resetToDefaults}
-          style={{
-            background: "#2a2a2a",
-            color: "#fff",
-            border: "1px solid #555",
-            borderRadius: 6,
-            padding: "6px 10px",
-            cursor: "pointer",
-          }}
-          title={
-            defaults
-              ? `Reset to threshold ${defaults.threshold}, interval ${defaults.interval_ms}ms`
-              : "Reset to defaults"
-          }
-        >
-          ♻️ Reset to defaults
-        </button>
-        {syncing && (
-          <span style={{ marginLeft: 10, fontStyle: "italic", color: "#999" }}>
-            🔄 Syncing settings…
-          </span>
-        )}
-      </div>
-
-      {/* Pure detection outputs only (no status strings here) */}
-      <p style={{ marginTop: 6 }}>
-        <strong>Detected Speaker:</strong> {speaker || "None"} <br />
-        <strong>Confidence:</strong>{" "}
-        {confidence !== null ? `${Math.round(confidence * 100)}%` : "N/A"}
-      </p>
-
-      <hr />
-      <h5>🧠 Enrolled Speakers</h5>
-      {speakersError ? (
-        <p style={{ color: "#f55" }}>⚠️ {speakersError}</p>
-      ) : speakers === null ? (
-        <p style={{ fontStyle: "italic", color: "#aaa" }}>Loading...</p>
-      ) : speakers.length === 0 ? (
-        <p>No speakers enrolled yet.</p>
-      ) : (
-        <ul>
-          {speakers.map((s) => (
-            <li key={s.name}>
-              {s.name} ({s.recordings})
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 };

@@ -8,8 +8,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "mic-test-device-id";
-const isConcreteId = (id) =>
-  !!id && id !== "default" && id !== "communications";
 
 export default function useMicCheck() {
   const [micStatus, setMicStatus] = useState("pending");
@@ -29,9 +27,9 @@ export default function useMicCheck() {
   const refreshDeviceList = useCallback(async () => {
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = all.filter(
-        (d) => d.kind === "audioinput" && isConcreteId(d.deviceId)
-      );
+      // Keep all audioinputs, including 'default'/'communications'. Some browsers
+      // only expose those until after getUserMedia permission is granted.
+      const audioInputs = all.filter((d) => d.kind === "audioinput");
       setDevices(audioInputs);
 
       const ids = audioInputs.map((d) => d.deviceId);
