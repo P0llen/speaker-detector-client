@@ -1,6 +1,6 @@
 {
   "name": "@p0llen/speaker-detector-client",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "React components and hooks for live speaker detection and mic analysis.",
   "main": "dist/index.js",
   "files": [
